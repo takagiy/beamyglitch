@@ -96,7 +96,7 @@ impl Plugin for BeamyGlitch {
 
     fn process(&mut self, buffer: &mut vst::buffer::AudioBuffer<f32>) {
         let mut outputs = buffer.split().1;
-        let len = outputs[0].len();
+        let buffer_len = outputs[0].len();
         for (note, _) in self.note_states.drain_filter(|_note, state| state.released) {
             self.wav_snippets.remove(&note);
         }
@@ -105,16 +105,27 @@ impl Plugin for BeamyGlitch {
         }
         let n_voices = self.note_states.len() as f32;
         for (note, state) in &mut self.note_states {
-            let (front, back) = self.wav_snippets.get_mut(note).unwrap().read(len);
-            for buffer in &mut outputs {
-                for (out, src) in buffer[..front.len()].iter_mut().zip(front.iter()) {
-                    *out += src / n_voices;
+            let mut remaining_len = buffer_len;
+            let mut pos = 0;
+            let wav_snippet = self.wav_snippets.get_mut(note).unwrap();
+            while remaining_len > 0 {
+                let len_to_read = wav_snippet.data.len().min(remaining_len);
+                let (front, back) = wav_snippet.read(len_to_read);
+                for buffer in &mut outputs {
+                    for (out, src) in buffer[pos..pos + front.len()].iter_mut().zip(front.iter()) {
+                        *out += src / n_voices;
+                    }
+                    for (out, src) in buffer[pos + front.len()..pos + front.len() + back.len()]
+                        .iter_mut()
+                        .zip(back.iter())
+                    {
+                        *out += src / n_voices;
+                    }
                 }
-                for (out, src) in buffer[front.len()..].iter_mut().zip(back.iter()) {
-                    *out += src / n_voices;
-                }
+                remaining_len -= len_to_read;
+                pos += len_to_read;
             }
-            state.age += len;
+            state.age += buffer_len;
         }
     }
 
