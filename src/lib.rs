@@ -34,7 +34,7 @@ impl Snippet {
         const N_WAVES: f32 = 10.;
         let mut data = vec![0.; (N_WAVES / (freq / rate)) as usize];
         for (i, sample) in data.iter_mut().enumerate() {
-            *sample = (i as f32 * freq * PI / rate).sin() * (u8::from(velocity) as f32 / 127. / 4.);
+            *sample = (i as f32 * freq * PI / rate).sin() * (u8::from(velocity) as f32 / 127.);
         }
         data.into()
     }
@@ -102,14 +102,15 @@ impl Plugin for BeamyGlitch {
         for buffer in &mut outputs {
             buffer.fill(0.);
         }
+        let n_voices = self.note_states.len() as f32;
         for (note, state) in &mut self.note_states {
             let (front, back) = self.wav_snippets.get_mut(note).unwrap().read(len);
             for buffer in &mut outputs {
                 for (out, src) in buffer[..front.len()].iter_mut().zip(front.iter()) {
-                    *out += src;
+                    *out += src / n_voices;
                 }
                 for (out, src) in buffer[front.len()..].iter_mut().zip(back.iter()) {
-                    *out += src;
+                    *out += src / n_voices;
                 }
             }
             state.age += len;
