@@ -32,9 +32,10 @@ struct Snippet {
 impl Snippet {
     fn from_note_info(rate: f32, freq: f32, velocity: Velocity) -> Self {
         const N_WAVES: f32 = 10.;
-        let mut data = vec![0.; (N_WAVES / (freq / rate)) as usize];
+        let mut data = vec![0.; (N_WAVES / (freq / rate)).round() as usize];
+        let normal_freq = 1. / (data.len() as f32 / N_WAVES);
         for (i, sample) in data.iter_mut().enumerate() {
-            *sample = (i as f32 * freq * PI / rate).sin() * (u8::from(velocity) as f32 / 127.);
+            *sample = (i as f32 * normal_freq * 2. * PI).sin() * (u8::from(velocity) as f32 / 127.);
         }
         data.into()
     }
