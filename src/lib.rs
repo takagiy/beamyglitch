@@ -19,7 +19,7 @@ impl NoteState {
     fn new(velocity: Velocity) -> Self {
         NoteState {
             velocity,
-            envelope: 1.,
+            envelope: 0.,
             age: 0,
             released: false,
         }
@@ -81,10 +81,6 @@ impl Default for BeamyGlitch {
 }
 
 impl Plugin for BeamyGlitch {
-    fn new(_host: HostCallback) -> Self {
-        Default::default()
-    }
-
     fn get_info(&self) -> Info {
         Info {
             name: "Beamy Glitch".to_owned(),
@@ -96,15 +92,23 @@ impl Plugin for BeamyGlitch {
         }
     }
 
+    fn new(_host: HostCallback) -> Self {
+        Default::default()
+    }
+
     fn process(&mut self, buffer: &mut vst::buffer::AudioBuffer<f32>) {
         let mut outputs = buffer.split().1;
         let buffer_len = outputs[0].len();
-        for (note, _) in self.note_states.drain_filter(|_note, state| state.released) {
+        for (note, _) in self
+            .note_states
+            .drain_filter(|_note, state| state.released && state.envelope <= 0.)
+        {
             self.wav_snippets.remove(&note);
         }
         for buffer in &mut outputs {
             buffer.fill(0.);
         }
+        let mut outputs = outputs.split_at_mut(1);
         let n_voices = self.note_states.len() as f32;
         for (note, state) in &mut self.note_states {
             let mut remaining_len = buffer_len;
@@ -113,13 +117,18 @@ impl Plugin for BeamyGlitch {
             while remaining_len > 0 {
                 let len_to_read = wav_snippet.data.len().min(remaining_len);
                 let (front, back) = wav_snippet.read(len_to_read);
-                for buffer in &mut outputs {
-                    for (out, src) in buffer[pos..pos + len_to_read]
-                        .iter_mut()
-                        .zip(front.iter().chain(back.iter()))
-                    {
-                        *out += src / n_voices;
+                for (out, src) in outputs.0[0][pos..pos + len_to_read]
+                    .iter_mut()
+                    .zip(outputs.1[0][pos..pos + len_to_read].iter_mut())
+                    .zip(front.iter().chain(back.iter()))
+                {
+                    if state.released {
+                        state.envelope = (state.envelope - 0.001).max(0.);
+                    } else if state.envelope < 1. {
+                        state.envelope = (state.envelope + 0.007).min(1.);
                     }
+                    *out.0 += src * state.envelope / n_voices;
+                    *out.1 += src * state.envelope / n_voices;
                 }
                 remaining_len -= len_to_read;
                 pos += len_to_read;
