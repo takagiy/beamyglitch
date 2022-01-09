@@ -10,6 +10,7 @@ use wmidi::{MidiMessage, Note, Velocity};
 
 struct NoteState {
     velocity: Velocity,
+    envelope: f32,
     age: usize,
     released: bool,
 }
@@ -18,6 +19,7 @@ impl NoteState {
     fn new(velocity: Velocity) -> Self {
         NoteState {
             velocity,
+            envelope: 1.,
             age: 0,
             released: false,
         }
@@ -112,12 +114,9 @@ impl Plugin for BeamyGlitch {
                 let len_to_read = wav_snippet.data.len().min(remaining_len);
                 let (front, back) = wav_snippet.read(len_to_read);
                 for buffer in &mut outputs {
-                    for (out, src) in buffer[pos..pos + front.len()].iter_mut().zip(front.iter()) {
-                        *out += src / n_voices;
-                    }
-                    for (out, src) in buffer[pos + front.len()..pos + front.len() + back.len()]
+                    for (out, src) in buffer[pos..pos + len_to_read]
                         .iter_mut()
-                        .zip(back.iter())
+                        .zip(front.iter().chain(back.iter()))
                     {
                         *out += src / n_voices;
                     }
