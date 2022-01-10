@@ -63,6 +63,7 @@ impl From<Vec<f32>> for Snippet {
 struct BeamyGlitch {
     wav_snippets: HashMap<Note, Snippet>,
     note_states: HashMap<Note, NoteState>,
+    envelope_buffer: Vec<f32>,
 }
 
 impl BeamyGlitch {
@@ -70,6 +71,7 @@ impl BeamyGlitch {
         BeamyGlitch {
             wav_snippets: Default::default(),
             note_states: Default::default(),
+            envelope_buffer: Default::default(),
         }
     }
 }
@@ -99,6 +101,8 @@ impl Plugin for BeamyGlitch {
     fn process(&mut self, buffer: &mut vst::buffer::AudioBuffer<f32>) {
         let mut outputs = buffer.split().1;
         let buffer_len = outputs[0].len();
+        self.envelope_buffer.fill(0.);
+        self.envelope_buffer.resize(buffer_len, 0.);
         for (note, _) in self
             .note_states
             .drain_filter(|_note, state| state.released && state.envelope <= 0.)
@@ -109,7 +113,6 @@ impl Plugin for BeamyGlitch {
             buffer.fill(0.);
         }
         let mut outputs = outputs.split_at_mut(1);
-        let n_voices = self.note_states.len() as f32;
         for (note, state) in &mut self.note_states {
             let mut remaining_len = buffer_len;
             let mut pos = 0;
@@ -117,23 +120,34 @@ impl Plugin for BeamyGlitch {
             while remaining_len > 0 {
                 let len_to_read = wav_snippet.data.len().min(remaining_len);
                 let (front, back) = wav_snippet.read(len_to_read);
-                for (out, src) in outputs.0[0][pos..pos + len_to_read]
+                for (i, (out, src)) in outputs.0[0][pos..pos + len_to_read]
                     .iter_mut()
                     .zip(outputs.1[0][pos..pos + len_to_read].iter_mut())
                     .zip(front.iter().chain(back.iter()))
+                    .enumerate()
                 {
                     if state.released {
                         state.envelope = (state.envelope - 0.001).max(0.);
                     } else if state.envelope < 1. {
                         state.envelope = (state.envelope + 0.007).min(1.);
                     }
-                    *out.0 += src * state.envelope / n_voices;
-                    *out.1 += src * state.envelope / n_voices;
+                    self.envelope_buffer[pos + i] += state.envelope;
+                    *out.0 += src * state.envelope;
+                    *out.1 += src * state.envelope;
                 }
                 remaining_len -= len_to_read;
                 pos += len_to_read;
             }
             state.age += buffer_len;
+        }
+        for (envelope, out) in self
+            .envelope_buffer
+            .iter()
+            .zip(outputs.0[0].iter_mut().zip(outputs.1[0].iter_mut()))
+        {
+            let compression = 1.5 * if *envelope > 1. { *envelope } else { 1. };
+            *out.0 /= compression;
+            *out.1 /= compression;
         }
     }
 
