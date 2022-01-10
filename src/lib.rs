@@ -159,8 +159,10 @@ impl Plugin for BeamyGlitch {
                                 .insert(note, NoteState::new(velocity, wav_snippet));
                         }
                         MidiMessage::NoteOff(_ch, note, _velocity) => {
-                            if let Some(state) = self.note_states.get_mut(&note) {
-                                state.released = true;
+                            if let Some(states) = self.note_states.get_vec_mut(&note) {
+                                for state in states {
+                                    state.released = true;
+                                }
                             }
                         }
                         _ => (),
