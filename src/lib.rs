@@ -1,6 +1,7 @@
 #![feature(hash_drain_filter)]
-use std::{collections::HashMap, f32::consts::PI};
+use std::f32::consts::PI;
 
+use multimap::MultiMap;
 use vst::{
     event::Event,
     plugin::{Category, HostCallback, Info, Plugin},
@@ -13,15 +14,17 @@ struct NoteState {
     envelope: f32,
     age: usize,
     released: bool,
+    wav_snippet: Snippet,
 }
 
 impl NoteState {
-    fn new(velocity: Velocity) -> Self {
+    fn new(velocity: Velocity, wav_snippet: Snippet) -> Self {
         NoteState {
             velocity,
             envelope: 0.,
             age: 0,
             released: false,
+            wav_snippet,
         }
     }
 }
@@ -61,15 +64,13 @@ impl From<Vec<f32>> for Snippet {
 }
 
 struct BeamyGlitch {
-    wav_snippets: HashMap<Note, Snippet>,
-    note_states: HashMap<Note, NoteState>,
+    note_states: MultiMap<Note, NoteState>,
     envelope_buffer: Vec<f32>,
 }
 
 impl BeamyGlitch {
     fn new() -> Self {
         BeamyGlitch {
-            wav_snippets: Default::default(),
             note_states: Default::default(),
             envelope_buffer: Default::default(),
         }
@@ -103,23 +104,18 @@ impl Plugin for BeamyGlitch {
         let buffer_len = outputs[0].len();
         self.envelope_buffer.fill(0.);
         self.envelope_buffer.resize(buffer_len, 0.);
-        for (note, _) in self
-            .note_states
-            .drain_filter(|_note, state| state.released && state.envelope <= 0.)
-        {
-            self.wav_snippets.remove(&note);
-        }
+        self.note_states
+            .retain(|_note, state| !state.released || state.envelope > 0.);
         for buffer in &mut outputs {
             buffer.fill(0.);
         }
         let mut outputs = outputs.split_at_mut(1);
-        for (note, state) in &mut self.note_states {
+        for (_note, state) in self.note_states.iter_mut() {
             let mut remaining_len = buffer_len;
             let mut pos = 0;
-            let wav_snippet = self.wav_snippets.get_mut(note).unwrap();
             while remaining_len > 0 {
-                let len_to_read = wav_snippet.data.len().min(remaining_len);
-                let (front, back) = wav_snippet.read(len_to_read);
+                let len_to_read = state.wav_snippet.data.len().min(remaining_len);
+                let (front, back) = state.wav_snippet.read(len_to_read);
                 for (i, (out, src)) in outputs.0[0][pos..pos + len_to_read]
                     .iter_mut()
                     .zip(outputs.1[0][pos..pos + len_to_read].iter_mut())
@@ -157,10 +153,10 @@ impl Plugin for BeamyGlitch {
                 if let Ok(ev) = MidiMessage::try_from(&ev.data[..]) {
                     match ev {
                         MidiMessage::NoteOn(_ch, note, velocity) => {
-                            self.note_states.insert(note, NoteState::new(velocity));
                             let wav_snippet =
                                 Snippet::from_note_info(44100., note.to_freq_f32(), velocity);
-                            self.wav_snippets.insert(note, wav_snippet);
+                            self.note_states
+                                .insert(note, NoteState::new(velocity, wav_snippet));
                         }
                         MidiMessage::NoteOff(_ch, note, _velocity) => {
                             if let Some(state) = self.note_states.get_mut(&note) {
