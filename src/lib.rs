@@ -10,7 +10,7 @@ use vst::{
 use wmidi::{MidiMessage, Note, Velocity};
 
 struct NoteState {
-    velocity: Velocity,
+    velocity: f32,
     envelope: f32,
     age: usize,
     released: bool,
@@ -20,7 +20,7 @@ struct NoteState {
 impl NoteState {
     fn new(velocity: Velocity, wav_snippet: Snippet) -> Self {
         NoteState {
-            velocity,
+            velocity: u8::from(velocity) as f32 / 127.,
             envelope: 0.,
             age: 0,
             released: false,
@@ -127,7 +127,7 @@ impl Plugin for BeamyGlitch {
                     } else if state.envelope < 1. {
                         state.envelope = (state.envelope + 0.007).min(1.);
                     }
-                    self.envelope_buffer[pos + i] += state.envelope;
+                    self.envelope_buffer[pos + i] += state.envelope * state.velocity;
                     *out.0 += src * state.envelope;
                     *out.1 += src * state.envelope;
                 }
