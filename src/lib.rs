@@ -1,13 +1,16 @@
 #![feature(hash_drain_filter)]
-use std::f32::consts::PI;
+use std::{f32::consts::PI, sync::Arc};
 
 use multimap::MultiMap;
+use params::BeamyGlitchParams;
 use vst::{
     event::Event,
-    plugin::{Category, HostCallback, Info, Plugin},
+    plugin::{Category, HostCallback, Info, Plugin, PluginParameters},
     plugin_main,
 };
 use wmidi::{MidiMessage, Note, Velocity};
+
+mod params;
 
 struct NoteState {
     velocity: f32,
@@ -66,6 +69,7 @@ impl From<Vec<f32>> for Snippet {
 struct BeamyGlitch {
     note_states: MultiMap<Note, NoteState>,
     envelope_buffer: Vec<f32>,
+    params: Arc<BeamyGlitchParams>,
 }
 
 impl BeamyGlitch {
@@ -73,6 +77,7 @@ impl BeamyGlitch {
         BeamyGlitch {
             note_states: Default::default(),
             envelope_buffer: Default::default(),
+            params: Default::default(),
         }
     }
 }
@@ -90,9 +95,14 @@ impl Plugin for BeamyGlitch {
             unique_id: 77288698,
             inputs: 0,
             outputs: 2,
+            parameters: 2,
             category: Category::Synth,
             ..Default::default()
         }
+    }
+
+    fn get_parameter_object(&mut self) -> Arc<dyn PluginParameters> {
+        self.params.clone()
     }
 
     fn new(_host: HostCallback) -> Self {
@@ -100,6 +110,8 @@ impl Plugin for BeamyGlitch {
     }
 
     fn process(&mut self, buffer: &mut vst::buffer::AudioBuffer<f32>) {
+        let release_speed = 1. / (44100. * self.params.release.get());
+        let attack_speed = 1. / (44100. * self.params.attack.get());
         let mut outputs = buffer.split().1;
         let buffer_len = outputs[0].len();
         self.envelope_buffer.fill(0.);
@@ -123,9 +135,9 @@ impl Plugin for BeamyGlitch {
                     .enumerate()
                 {
                     if state.released {
-                        state.envelope = (state.envelope - 0.001).max(0.);
+                        state.envelope = (state.envelope - release_speed).max(0.);
                     } else if state.envelope < 1. {
-                        state.envelope = (state.envelope + 0.007).min(1.);
+                        state.envelope = (state.envelope + attack_speed).min(1.);
                     }
                     self.envelope_buffer[pos + i] += state.envelope * state.velocity;
                     *out.0 += src * state.envelope;
